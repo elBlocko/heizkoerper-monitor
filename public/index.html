@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Heizkörper-Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --bg: #f4f2ee; --surface: #ffffff; --ink: #1d1c1a; --muted: #6b6760; --line: #e3dfd8;
+    --warm: #d9541e; --warm-soft: #fbe6dc; --cold: #2f6fb0; --cold-soft: #dde9f6;
+    --ok: #2d7d4f; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --surface: #1e1d1b; --ink: #ecebe7; --muted: #9a968e; --line: #2e2c29;
+      --warm: #f07a45; --warm-soft: #3a2218; --cold: #6aa4e0; --cold-soft: #182635;
+      --ok: #5cbf86; --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --surface: #1e1d1b; --ink: #ecebe7; --muted: #9a968e; --line: #2e2c29;
+    --warm: #f07a45; --warm-soft: #3a2218; --cold: #6aa4e0; --cold-soft: #182635;
+    --ok: #5cbf86; --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 "IBM Plex Sans", system-ui, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .banner { border: 1px dashed var(--line); background: var(--surface); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .banner strong { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--warm); }
+  .card.cold::before { background: var(--cold); }
+  .card .name { font-weight: 500; margin-bottom: 6px; }
+  .card .temp { font: 500 34px/1.1 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: -.02em; }
+  .card .temp small { font-size: 16px; color: var(--muted); }
+  .row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .pill { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 99px; background: var(--warm-soft); color: var(--warm); }
+  .card.cold .pill { background: var(--cold-soft); color: var(--cold); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .panel-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 4px 12px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .chart-box { position: relative; height: 320px; }
+  .login { max-width: 380px; margin: 12vh auto 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; box-shadow: var(--shadow); }
+  .login h1 { margin-bottom: 8px; }
+  .login p { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .login input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  .btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--ink); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font: inherit; font-size: 14px; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+  .err { color: var(--warm); font-size: 13px; margin-top: 10px; min-height: 1em; }
+  footer { margin-top: 16px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
+  footer button { background: none; border: 0; color: var(--muted); font: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section id="login" class="login" hidden>
+    <h1>Heizkörper-Monitor</h1>
+    <p>Gib deinen Zugangsschlüssel ein. Er wird nur in diesem Browser gespeichert.</p>
+    <input id="keyInput" type="password" autocomplete="current-password" placeholder="Zugangsschlüssel">
+    <div class="btns">
+      <button class="btn" id="keySubmit">Anmelden</button>
+      <button class="btn ghost" id="demoBtn">Demo ansehen</button>
+    </div>
+    <div class="err" id="loginErr"></div>
+  </section>
+
+  <section id="app" hidden>
+    <header>
+      <h1>Heizkörper-Monitor</h1>
+      <span class="meta" id="updated"></span>
+    </header>
+    <div class="banner" id="demoBanner" hidden><strong>Demo-Modus:</strong> simulierte Werte. Echte Daten erscheinen, sobald Home Assistant sendet.</div>
+    <div class="grid" id="cards"></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Verlauf</h2>
+        <div class="seg" role="group" aria-label="Zeitraum">
+          <button data-range="24" aria-pressed="true">24 h</button>
+          <button data-range="168" aria-pressed="false">7 Tage</button>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart" aria-label="Temperaturverlauf der Heizkörper"></canvas></div>
+    </div>
+    <footer>
+      <span id="thresholdInfo"></span>
+      <button id="logout">Abmelden</button>
+    </footer>
+  </section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+(() => {
+  const KEY_STORE = "heizung.viewKey";
+  const store = {
+    get() { try { return localStorage.getItem(KEY_STORE); } catch { return null; } },
+    set(v) { try { localStorage.setItem(KEY_STORE, v); } catch {} },
+    clear() { try { localStorage.removeItem(KEY_STORE); } catch {} },
+  };
+
+  const $ = (id) => document.getElementById(id);
+  let data = null, chart = null, rangeHours = 24, refreshTimer = null, demo = false;
+
+  // ---------- Demo-Daten ----------
+  function makeDemo() {
+    const rooms = [
+      { id: "wohnzimmer", name: "Wohnzimmer", base: 55 },
+      { id: "schlafzimmer", name: "Schlafzimmer", base: 42 },
+      { id: "bad", name: "Bad", base: 60 },
+      { id: "kueche", name: "Küche", base: 48 },
+    ];
+    const now = Date.now(), step = 10 * 60 * 1000, history = [];
+    for (let t = now - 7 * 24 * 3600e3; t <= now; t += step) {
+      const h = new Date(t).getHours() + new Date(t).getMinutes() / 60;
+      const heating = (h >= 6 && h < 22) ? 1 : 0.35; // Nachtabsenkung
+      const values = {};
+      rooms.forEach((r, i) => {
+        let v = 20 + (r.base - 20) * heating + Math.sin(t / 3.6e6 + i) * 2.5;
+        if (r.id === "schlafzimmer" && now - t < 3 * 3600e3) v = 20 + (v - 20) * ((now - t) / (3 * 3600e3)) * 0.4; // kühlt gerade aus
+        values[r.id] = Math.round(v * 10) / 10;
+      });
+      history.push({ ts: t, values });
+    }
+    const last = history[history.length - 1];
+    return {
+      latest: {
+        ts: last.ts, threshold: 30,
+        sensors: rooms.map((r, i) => ({ id: r.id, name: r.name, temperature: last.values[r.id], battery: [92, 78, 100, 64][i] })),
+      },
+      history,
+    };
+  }
+
+  // ---------- Daten laden ----------
+  async function load(key) {
+    const res = await fetch("/api/readings", { headers: { "x-view-key": key }, cache: "no-store" });
+    if (res.status === 401) throw new Error("unauthorized");
+    if (res.status === 503) throw new Error("not_configured");
+    if (res.status === 404) throw new Error("no_data");
+    if (!res.ok) throw new Error("http_" + res.status);
+    return res.json();
+  }
+
+  // ---------- Rendering ----------
+  const fmtTime = (ts) => new Date(ts).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+  function renderCards() {
+    const { latest } = data, thr = latest.threshold;
+    const box = $("cards");
+    box.textContent = "";
+    latest.sensors.forEach((s) => {
+      const cold = thr != null && s.temperature < thr;
+      const card = document.createElement("div");
+      card.className = "card" + (cold ? " cold" : "");
+
+      const name = document.createElement("div");
+      name.className = "name"; name.textContent = s.name;
+
+      const temp = document.createElement("div");
+      temp.className = "temp";
+      temp.textContent = s.temperature.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      const unit = document.createElement("small"); unit.textContent = " °C";
+      temp.appendChild(unit);
+
+      const row = document.createElement("div");
+      row.className = "row";
+      const pill = document.createElement("span");
+      pill.className = "pill"; pill.textContent = cold ? "kühlt aus" : "warm";
+      const bat = document.createElement("span");
+      bat.textContent = s.battery != null ? `Batterie ${s.battery} %` : "";
+      row.append(pill, bat);
+
+      card.append(name, temp, row);
+      box.appendChild(card);
+    });
+    $("updated").textContent = "Stand: " + fmtTime(latest.ts);
+    $("thresholdInfo").textContent = thr != null ? `Warnung unter ${thr} °C` : "";
+  }
+
+  const PALETTE = ["--warm", "--cold", "--ok", "--muted"];
+
+  function renderChart() {
+    const cutoff = Date.now() - rangeHours * 3600e3;
+    const rows = data.history.filter((h) => h.ts >= cutoff);
+    const labels = rows.map((h) => rangeHours > 24
+      ? new Date(h.ts).toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" })
+      : new Date(h.ts).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }));
+    const datasets = data.latest.sensors.map((s, i) => ({
+      label: s.name,
+      data: rows.map((h) => h.values[s.id] ?? null),
+      borderColor: css(PALETTE[i % PALETTE.length]),
+      backgroundColor: css(PALETTE[i % PALETTE.length]),
+      borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true,
+      borderDash: i >= PALETTE.length ? [5, 4] : [],
+    }));
+    const thr = data.latest.threshold;
+    if (thr != null) datasets.push({
+      label: "Grenzwert", data: rows.map(() => thr), borderColor: css("--muted"),
+      borderDash: [4, 4], borderWidth: 1, pointRadius: 0,
+    });
+
+    const grid = css("--line"), ink = css("--muted");
+    if (chart) chart.destroy();
+    chart = new Chart($("chart"), {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: { ticks: { color: ink, maxTicksLimit: 8, autoSkip: true }, grid: { display: false } },
+          y: { ticks: { color: ink, callback: (v) => v + " °C" }, grid: { color: grid } },
+        },
+        plugins: {
+          legend: { labels: { color: ink, boxWidth: 12, boxHeight: 2 } },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y?.toFixed(1)} °C` } },
+        },
+      },
+    });
+  }
+
+  function render() { renderCards(); renderChart(); }
+
+  // ---------- Ablauf ----------
+  function showApp(d, isDemo) {
+    data = d; demo = isDemo;
+    $("login").hidden = true; $("app").hidden = false;
+    $("demoBanner").hidden = !isDemo;
+    render();
+  }
+
+  function showLogin(msg) {
+    clearInterval(refreshTimer);
+    $("app").hidden = true; $("login").hidden = false;
+    $("loginErr").textContent = msg || "";
+  }
+
+  async function start(key) {
+    try {
+      const d = await load(key);
+      store.set(key);
+      showApp(d, false);
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(async () => {
+        try { data = await load(key); render(); } catch {}
+      }, 60000);
+    } catch (e) {
+      if (e.message === "unauthorized") { store.clear(); showLogin("Schlüssel stimmt nicht."); }
+      else if (e.message === "no_data") showLogin("Angemeldet, aber noch keine Messwerte vorhanden. Schau dir solange die Demo an.");
+      else if (e.message === "not_configured") showLogin("Die Seite ist noch nicht eingerichtet. Schau dir solange die Demo an.");
+      else showLogin("Verbindung fehlgeschlagen.");
+    }
+  }
+
+  $("keySubmit").addEventListener("click", () => { const k = $("keyInput").value.trim(); if (k) start(k); });
+  $("keyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("keySubmit").click(); });
+  $("demoBtn").addEventListener("click", () => showApp(makeDemo(), true));
+  $("logout").addEventListener("click", () => { store.clear(); showLogin(); });
+  document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+    rangeHours = Number(b.dataset.range);
+    document.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderChart();
+  }));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => data && renderChart());
+
+  const params = new URLSearchParams(location.search);
+  if (params.has("demo")) showApp(makeDemo(), true);
+  else { const saved = store.get(); saved ? start(saved) : showLogin(); }
+})();
+</script>
+</body>
+</html>

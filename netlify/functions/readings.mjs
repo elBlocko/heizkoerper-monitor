@@ -29,7 +29,17 @@ export default async (req) => {
   const history = (await store.get("history", { type: "json" })) || [];
 
   if (!latest) return json({ error: "no_data" }, 404);
-  return json({ latest, history });
+
+  const dailyRaw = (await store.get("daily", { type: "json" })) || {};
+  const daily = Object.keys(dailyRaw).sort().map((date) => {
+    const values = {};
+    for (const [id, e] of Object.entries(dailyRaw[date])) {
+      values[id] = { min: e.min, max: e.max, avg: Math.round((e.sum / e.n) * 10) / 10 };
+    }
+    return { date, values };
+  });
+
+  return json({ latest, history, daily });
 };
 
 export const config = { path: "/api/readings" };

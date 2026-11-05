@@ -5,6 +5,11 @@ import { getStore } from "@netlify/blobs";
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage Verlauf
 const MAX_SENSORS = 20;
+const MAX_DAYS = 400; // Tageswerte für gut 13 Monate
+
+// Datum im deutschen Kalender (Europe/Berlin) als YYYY-MM-DD
+const dayFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" });
+const dayKey = (ts) => dayFmt.format(new Date(ts));
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -60,7 +65,23 @@ export default async (req) => {
   history.push({ ts, values });
   const pruned = history.filter((h) => ts - h.ts <= MAX_AGE_MS);
 
+  // Tageswerte (Min/Max/Mittel) für Monats- und Jahresansicht, ca. 13 Monate
+  const daily = (await store.get("daily", { type: "json" })) || {};
+  const day = dayKey(ts);
+  const entry = daily[day] || (daily[day] = {});
+  for (const s of sensors) {
+    const t = s.temperature;
+    const e = entry[s.id] || { min: t, max: t, sum: 0, n: 0 };
+    e.min = Math.min(e.min, t);
+    e.max = Math.max(e.max, t);
+    e.sum = Math.round((e.sum + t) * 10) / 10;
+    e.n += 1;
+    entry[s.id] = e;
+  }
+  for (const k of Object.keys(daily).sort().slice(0, -MAX_DAYS)) delete daily[k];
+
   await store.setJSON("history", pruned);
+  await store.setJSON("daily", daily);
   await store.setJSON("latest", { ts, threshold, sensors });
 
   return json({ ok: true, stored: sensors.length });

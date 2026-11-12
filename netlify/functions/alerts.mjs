@@ -3,7 +3,8 @@
 // PUT  /api/alerts  { enabled, recipients } -> Einstellungen speichern
 // POST /api/alerts  { action: "test" }   -> Test-Mail an alle Empfänger
 // Alle Aufrufe brauchen den Header "x-view-key: <VIEW_KEY>".
-import { json, safeEqual, openStore, loadAlerts, loadAlertStatus, updateAlertStatus, cleanRecipients, mailConfigured, sendMail, fmtTime } from "../lib/common.mjs";
+import { testMail } from "../lib/mail-templates.mjs";
+import { json, safeEqual, openStore, loadAlerts, loadAlertStatus, updateAlertStatus, cleanRecipients, mailConfigured, sendMail } from "../lib/common.mjs";
 
 const TEST_COOLDOWN_MS = 60 * 1000;
 
@@ -48,9 +49,8 @@ export default async (req) => {
       return json({ error: "Bitte eine Minute bis zur nächsten Test-Mail warten" }, 429);
     }
     try {
-      await sendMail(alerts.recipients, "Test: Heizkörper-Monitor",
-        `Dies ist eine Test-Mail vom Heizkörper-Monitor (${fmtTime(Date.now())}).\n\n` +
-        `Wenn der Vorlauf unter den Grenzwert fällt, kommt höchstens eine Warnung pro Tag an diese Adresse.`);
+      const latest = await store.get("latest", { type: "json" });
+      await sendMail(alerts.recipients, testMail({ ts: Date.now(), threshold: latest?.threshold ?? null }));
       await updateAlertStatus(store, { lastTestTs: Date.now(), lastError: null });
       return json({ ok: true, sent: alerts.recipients.length });
     } catch (e) {

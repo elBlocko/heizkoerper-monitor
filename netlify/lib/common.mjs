@@ -76,7 +76,7 @@ export function mailConfigured() {
   return Boolean(Netlify.env.get("GMAIL_USER") && Netlify.env.get("GMAIL_APP_PASSWORD"));
 }
 
-export async function sendMail(recipients, subject, text) {
+export async function sendMail(recipients, { subject, text, html }) {
   const user = Netlify.env.get("GMAIL_USER");
   const pass = Netlify.env.get("GMAIL_APP_PASSWORD");
   if (!user || !pass) throw new Error("GMAIL_USER / GMAIL_APP_PASSWORD fehlen in Netlify");
@@ -97,6 +97,7 @@ export async function sendMail(recipients, subject, text) {
       bcc: recipients,
       subject,
       text,
+      html,
     });
   } catch (e) {
     // Bei Anmeldefehlern Hinweise zur Diagnose ergänzen (nie das Passwort selbst)

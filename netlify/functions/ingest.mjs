@@ -2,14 +2,14 @@
 // und verschickt bei Auskühlung höchstens eine Warn-Mail pro Tag.
 // Erwartet: POST /api/ingest, Header "Authorization: Bearer <INGEST_TOKEN>"
 // Body: { "threshold": 30, "sensors": [ { "id": "vorlauf", "name": "Vorlauf Wohnung", "temperature": 52.3, "battery": 95 } ] }
-import { json, safeEqual, openStore, dayKey, fmtTime, loadAlerts, loadAlertStatus, updateAlertStatus, sendMail, mailConfigured } from "../lib/common.mjs";
+import { alertMail } from "../lib/mail-templates.mjs";
+import { json, safeEqual, openStore, dayKey, loadAlerts, loadAlertStatus, updateAlertStatus, sendMail, mailConfigured } from "../lib/common.mjs";
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage Verlauf
 const MAX_SENSORS = 20;
 const MAX_DAYS = 400; // Tageswerte für gut 13 Monate
 const CONFIRM_WINDOW_MS = 30 * 60 * 1000; // vorheriger Wert muss jünger als 30 Min. sein
 
-const fmtT = (v) => v.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " °C";
 
 // Warnung, wenn der aktuelle UND der vorherige Messwert unter dem Grenzwert liegen
 // (also seit mindestens einem Sendeintervall) – höchstens einmal pro Kalendertag.
@@ -29,12 +29,8 @@ async function checkAlert(store, sensors, threshold, history, ts) {
   });
   if (!cold.length) return;
 
-  const lines = cold.map((s) => `• ${s.name}: ${fmtT(s.temperature)}`).join("\n");
   try {
-    await sendMail(alerts.recipients, `Heizung: Vorlauf unter ${threshold} °C`,
-      `Der Vorlauf ist unter den Grenzwert von ${threshold} °C gefallen.\n\n${lines}\n\n` +
-      `Stand: ${fmtTime(ts)}\n\n` +
-      `Diese Warnung kommt höchstens einmal pro Tag. Verlauf und Einstellungen findest du im Dashboard.`);
+    await sendMail(alerts.recipients, alertMail({ sensors: cold, threshold, ts }));
     await updateAlertStatus(store, { lastAlertDay: today, lastAlertTs: ts, lastError: null });
   } catch (e) {
     await updateAlertStatus(store, { lastError: String(e.message || e).slice(0, 200) });

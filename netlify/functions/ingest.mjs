@@ -1,27 +1,47 @@
-// Nimmt Messwerte von Home Assistant entgegen und speichert sie in Netlify Blobs.
+// Nimmt Messwerte von Home Assistant entgegen, speichert sie in Netlify Blobs
+// und verschickt bei Auskühlung höchstens eine Warn-Mail pro Tag.
 // Erwartet: POST /api/ingest, Header "Authorization: Bearer <INGEST_TOKEN>"
-// Body: { "threshold": 30, "sensors": [ { "id": "wohnzimmer", "name": "Wohnzimmer", "temperature": 52.3, "battery": 95 } ] }
+// Body: { "threshold": 30, "sensors": [ { "id": "vorlauf", "name": "Vorlauf Wohnung", "temperature": 52.3, "battery": 95 } ] }
 import { getStore } from "@netlify/blobs";
+import { json, safeEqual, dayKey, fmtTime, loadAlerts, sendMail, mailConfigured } from "../lib/common.mjs";
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage Verlauf
 const MAX_SENSORS = 20;
 const MAX_DAYS = 400; // Tageswerte für gut 13 Monate
+const CONFIRM_WINDOW_MS = 30 * 60 * 1000; // vorheriger Wert muss jünger als 30 Min. sein
 
-// Datum im deutschen Kalender (Europe/Berlin) als YYYY-MM-DD
-const dayFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" });
-const dayKey = (ts) => dayFmt.format(new Date(ts));
+const fmtT = (v) => v.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " °C";
 
-const json = (data, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+// Warnung, wenn der aktuelle UND der vorherige Messwert unter dem Grenzwert liegen
+// (also seit mindestens einem Sendeintervall) – höchstens einmal pro Kalendertag.
+async function checkAlert(store, sensors, threshold, history, ts) {
+  if (threshold == null || !mailConfigured()) return;
+  const alerts = await loadAlerts(store);
+  if (!alerts.enabled || !alerts.recipients.length) return;
+  const today = dayKey(ts);
+  if (alerts.lastAlertDay === today) return;
+
+  const prev = history.length >= 2 ? history[history.length - 2] : null;
+  const cold = sensors.filter((s) => {
+    if (s.temperature >= threshold) return false;
+    const p = prev && ts - prev.ts <= CONFIRM_WINDOW_MS ? prev.values[s.id] : undefined;
+    return p != null && p < threshold;
   });
+  if (!cold.length) return;
 
-function safeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  const lines = cold.map((s) => `• ${s.name}: ${fmtT(s.temperature)}`).join("\n");
+  try {
+    await sendMail(alerts.recipients, `Heizung: Vorlauf unter ${threshold} °C`,
+      `Der Vorlauf ist unter den Grenzwert von ${threshold} °C gefallen.\n\n${lines}\n\n` +
+      `Stand: ${fmtTime(ts)}\n\n` +
+      `Diese Warnung kommt höchstens einmal pro Tag. Verlauf und Einstellungen findest du im Dashboard.`);
+    alerts.lastAlertDay = today;
+    alerts.lastAlertTs = ts;
+    alerts.lastError = null;
+  } catch (e) {
+    alerts.lastError = String(e.message || e).slice(0, 200);
+  }
+  await store.setJSON("alerts", alerts);
 }
 
 export default async (req) => {
@@ -83,6 +103,9 @@ export default async (req) => {
   await store.setJSON("history", pruned);
   await store.setJSON("daily", daily);
   await store.setJSON("latest", { ts, threshold, sensors });
+
+  // Ein Fehler beim Mailversand darf das Speichern der Messwerte nicht verhindern
+  try { await checkAlert(store, sensors, threshold, pruned, ts); } catch {}
 
   return json({ ok: true, stored: sensors.length });
 };

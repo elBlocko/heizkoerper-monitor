@@ -74,6 +74,19 @@
   .err { color: var(--warm); font-size: 13px; margin-top: 10px; min-height: 1em; }
   footer { margin-top: 16px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
   footer button { background: none; border: 0; color: var(--muted); font: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+  .alerts { margin-top: 16px; }
+  .alerts .note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .switch input { width: 16px; height: 16px; accent-color: var(--warm); }
+  .rcpt { list-style: none; margin: 0 0 12px; padding: 0; border-top: 1px solid var(--line); }
+  .rcpt li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; word-break: break-all; }
+  .rcpt li.none { color: var(--muted); }
+  .rcpt button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; flex: none; }
+  .addrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .addrow input { flex: 1 1 220px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+  .msg { font-size: 13px; margin-top: 10px; min-height: 1em; color: var(--muted); }
+  .msg.bad { color: var(--warm); }
+  .btn:disabled { opacity: .5; cursor: default; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -126,6 +139,21 @@
       <div class="summary" id="summary"></div>
     </div>
 
+    <div class="panel alerts" id="alertsPanel" hidden>
+      <div class="panel-head">
+        <h2>E-Mail-Warnungen</h2>
+        <label class="switch"><input type="checkbox" id="alertsEnabled"> Warnungen aktiv</label>
+      </div>
+      <p class="note" id="alertsNote">Fällt der Vorlauf unter den Grenzwert, bekommen diese Adressen eine Warnung – höchstens einmal pro Tag.</p>
+      <ul class="rcpt" id="rcptList"></ul>
+      <div class="addrow">
+        <input id="rcptInput" type="email" placeholder="name@beispiel.de" autocomplete="email">
+        <button class="btn" id="rcptAdd">Hinzufügen</button>
+        <button class="btn ghost" id="alertTest">Test-Mail senden</button>
+      </div>
+      <div class="msg" id="alertsMsg"></div>
+    </div>
+
     <footer>
       <span id="thresholdInfo"></span>
       <button id="logout">Abmelden</button>
@@ -145,7 +173,7 @@
   };
   const $ = (id) => document.getElementById(id);
   const DAY = 24 * 3600e3;
-  let data = null, chart = null, range = "day", refreshTimer = null;
+  let data = null, chart = null, range = "day", refreshTimer = null, currentKey = null, alerts = null;
 
   const dayFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" });
   const dayKey = (ts) => dayFmt.format(new Date(ts));
@@ -311,12 +339,72 @@
 
   function render() { renderHero(); renderChart(); }
 
+  // ---------- E-Mail-Warnungen ----------
+  async function alertsApi(method, body) {
+    const res = await fetch("/api/alerts", {
+      method, cache: "no-store",
+      headers: { "x-view-key": currentKey, ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || "Fehler " + res.status);
+    return d;
+  }
+  function alertsMsg(text, bad) { $("alertsMsg").textContent = text || ""; $("alertsMsg").classList.toggle("bad", !!bad); }
+  function renderAlerts() {
+    if (!alerts) return;
+    $("alertsEnabled").checked = alerts.enabled;
+    const list = $("rcptList");
+    list.textContent = "";
+    if (!alerts.recipients.length) {
+      const li = document.createElement("li"); li.className = "none"; li.textContent = "Noch keine Empfänger eingetragen."; list.appendChild(li);
+    }
+    for (const mail of alerts.recipients) {
+      const li = document.createElement("li");
+      const span = document.createElement("span"); span.textContent = mail;
+      const btn = document.createElement("button"); btn.textContent = "Entfernen";
+      btn.addEventListener("click", () => saveAlerts({ recipients: alerts.recipients.filter((m) => m !== mail) }, "Entfernt."));
+      li.append(span, btn); list.appendChild(li);
+    }
+    $("alertTest").disabled = !alerts.recipients.length || !alerts.mailConfigured;
+    if (!alerts.mailConfigured) alertsMsg("Der Mailversand ist noch nicht eingerichtet (GMAIL_USER und GMAIL_APP_PASSWORD in Netlify fehlen).", true);
+    else if (alerts.lastError) alertsMsg("Letzter Versand fehlgeschlagen: " + alerts.lastError, true);
+    else if (alerts.lastAlertTs) alertsMsg("Letzte Warnung: " + new Date(alerts.lastAlertTs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }));
+    else alertsMsg("");
+  }
+  async function loadAlerts() {
+    try { alerts = await alertsApi("GET"); $("alertsPanel").hidden = false; renderAlerts(); }
+    catch { $("alertsPanel").hidden = true; }
+  }
+  async function saveAlerts(patch, okText) {
+    try { alerts = await alertsApi("PUT", patch); renderAlerts(); if (okText) alertsMsg(okText); }
+    catch (e) { alertsMsg(e.message, true); }
+  }
+  $("rcptAdd").addEventListener("click", () => {
+    const mail = $("rcptInput").value.trim().toLowerCase();
+    if (!mail) return;
+    if (!$("rcptInput").checkValidity()) { alertsMsg("Das ist keine gültige E-Mail-Adresse.", true); return; }
+    if (alerts.recipients.includes(mail)) { alertsMsg("Diese Adresse ist schon eingetragen.", true); return; }
+    $("rcptInput").value = "";
+    saveAlerts({ recipients: [...alerts.recipients, mail] }, "Hinzugefügt.");
+  });
+  $("rcptInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("rcptAdd").click(); });
+  $("alertsEnabled").addEventListener("change", (e) => saveAlerts({ enabled: e.target.checked }, e.target.checked ? "Warnungen eingeschaltet." : "Warnungen ausgeschaltet."));
+  $("alertTest").addEventListener("click", async () => {
+    $("alertTest").disabled = true; alertsMsg("Sende Test-Mail …");
+    try { const d = await alertsApi("POST", { action: "test" }); alertsMsg(`Test-Mail an ${d.sent} Empfänger verschickt.`); }
+    catch (e) { alertsMsg(e.message, true); }
+    finally { $("alertTest").disabled = !alerts?.recipients.length || !alerts?.mailConfigured; }
+  });
+
   // ---------- Ablauf ----------
   function showApp(d, isDemo) {
     data = d;
     $("login").hidden = true; $("app").hidden = false;
     $("demoBanner").hidden = !isDemo;
+    $("alertsPanel").hidden = true;
     render();
+    if (!isDemo) loadAlerts();
   }
   function showLogin(msg) {
     clearInterval(refreshTimer);
@@ -327,6 +415,7 @@
     try {
       const d = await load(key);
       store.set(key);
+      currentKey = key;
       showApp(d, false);
       clearInterval(refreshTimer);
       refreshTimer = setInterval(async () => { try { data = await load(key); render(); } catch {} }, 60000);

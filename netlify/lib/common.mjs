@@ -90,11 +90,21 @@ export async function sendMail(recipients, subject, text) {
     socketTimeout: 8000,
   });
   // Empfänger in BCC, damit sie die Adressen der anderen nicht sehen
-  await transporter.sendMail({
-    from: `"Heizkörper-Monitor" <${user}>`,
-    to: user,
-    bcc: recipients,
-    subject,
-    text,
-  });
+  try {
+    await transporter.sendMail({
+      from: `"Heizkörper-Monitor" <${user}>`,
+      to: user,
+      bcc: recipients,
+      subject,
+      text,
+    });
+  } catch (e) {
+    // Bei Anmeldefehlern Hinweise zur Diagnose ergänzen (nie das Passwort selbst)
+    if (e && e.code === "EAUTH") {
+      const clean = pass.replace(/\s+/g, "");
+      const hint = /^[a-z]{16}$/.test(clean) ? "Format ok" : "Format ungewöhnlich, erwartet 16 Kleinbuchstaben";
+      throw new Error(`Gmail-Anmeldung abgelehnt. Angemeldet als „${user}“, App-Passwort ${clean.length} Zeichen (${hint}).`);
+    }
+    throw e;
+  }
 }

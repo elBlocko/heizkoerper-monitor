@@ -1,7 +1,6 @@
 // Liefert aktuelle Werte und Verlauf ans Dashboard.
 // Erwartet: GET /api/readings, Header "x-view-key: <VIEW_KEY>"
-import { getStore } from "@netlify/blobs";
-import { json, safeEqual } from "../lib/common.mjs";
+import { json, safeEqual, openStore } from "../lib/common.mjs";
 
 export default async (req) => {
   if (req.method !== "GET") return json({ error: "Method not allowed" }, 405);
@@ -12,7 +11,7 @@ export default async (req) => {
   const given = req.headers.get("x-view-key") || "";
   if (!safeEqual(given, viewKey)) return json({ error: "unauthorized" }, 401);
 
-  const store = getStore("heizung");
+  const store = openStore();
   const latest = await store.get("latest", { type: "json" });
   const history = (await store.get("history", { type: "json" })) || [];
 

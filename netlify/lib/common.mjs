@@ -1,5 +1,10 @@
 // Gemeinsame Hilfen für die Netlify Functions (kein eigener Endpunkt).
 import nodemailer from "nodemailer";
+import { getStore } from "@netlify/blobs";
+
+// Starke Konsistenz: Änderungen sind sofort für alle folgenden Aufrufe sichtbar
+// (Standard wäre "eventual" mit bis zu 60 s Verzögerung).
+export const openStore = () => getStore({ name: "heizung", consistency: "strong" });
 
 export const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -22,7 +27,10 @@ export const dayKey = (ts) => dayFmt.format(new Date(ts));
 export const fmtTime = (ts) =>
   new Date(ts).toLocaleString("de-DE", { timeZone: "Europe/Berlin", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-// ---------- Warnungs-Einstellungen (Netlify Blobs, Schlüssel "alerts") ----------
+// ---------- Warnungen (Netlify Blobs) ----------
+// "alerts"       = Einstellungen (nur über das Dashboard geändert)
+// "alert-status" = Versandstatus (von Ingest und Test-Mail geschrieben)
+// Getrennt, damit ein Statuswechsel nie die Empfängerliste überschreiben kann.
 export const MAX_RECIPIENTS = 10;
 const EMAIL_RE = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i;
 
@@ -43,11 +51,24 @@ export async function loadAlerts(store) {
   return {
     enabled: a.enabled !== false,
     recipients: Array.isArray(a.recipients) ? a.recipients : [],
-    lastAlertDay: a.lastAlertDay ?? null,
-    lastAlertTs: a.lastAlertTs ?? null,
-    lastTestTs: a.lastTestTs ?? null,
-    lastError: a.lastError ?? null,
   };
+}
+
+export async function loadAlertStatus(store) {
+  const s = (await store.get("alert-status", { type: "json" })) || {};
+  return {
+    lastAlertDay: s.lastAlertDay ?? null,
+    lastAlertTs: s.lastAlertTs ?? null,
+    lastTestTs: s.lastTestTs ?? null,
+    lastError: s.lastError ?? null,
+  };
+}
+
+export async function updateAlertStatus(store, patch) {
+  const s = await loadAlertStatus(store);
+  Object.assign(s, patch);
+  await store.setJSON("alert-status", s);
+  return s;
 }
 
 // ---------- E-Mail über Gmail (App-Passwort) ----------

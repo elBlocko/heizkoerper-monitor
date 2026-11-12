@@ -2,8 +2,7 @@
 // und verschickt bei Auskühlung höchstens eine Warn-Mail pro Tag.
 // Erwartet: POST /api/ingest, Header "Authorization: Bearer <INGEST_TOKEN>"
 // Body: { "threshold": 30, "sensors": [ { "id": "vorlauf", "name": "Vorlauf Wohnung", "temperature": 52.3, "battery": 95 } ] }
-import { getStore } from "@netlify/blobs";
-import { json, safeEqual, dayKey, fmtTime, loadAlerts, sendMail, mailConfigured } from "../lib/common.mjs";
+import { json, safeEqual, openStore, dayKey, fmtTime, loadAlerts, loadAlertStatus, updateAlertStatus, sendMail, mailConfigured } from "../lib/common.mjs";
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage Verlauf
 const MAX_SENSORS = 20;
@@ -19,7 +18,8 @@ async function checkAlert(store, sensors, threshold, history, ts) {
   const alerts = await loadAlerts(store);
   if (!alerts.enabled || !alerts.recipients.length) return;
   const today = dayKey(ts);
-  if (alerts.lastAlertDay === today) return;
+  const status = await loadAlertStatus(store);
+  if (status.lastAlertDay === today) return;
 
   const prev = history.length >= 2 ? history[history.length - 2] : null;
   const cold = sensors.filter((s) => {
@@ -35,13 +35,10 @@ async function checkAlert(store, sensors, threshold, history, ts) {
       `Der Vorlauf ist unter den Grenzwert von ${threshold} °C gefallen.\n\n${lines}\n\n` +
       `Stand: ${fmtTime(ts)}\n\n` +
       `Diese Warnung kommt höchstens einmal pro Tag. Verlauf und Einstellungen findest du im Dashboard.`);
-    alerts.lastAlertDay = today;
-    alerts.lastAlertTs = ts;
-    alerts.lastError = null;
+    await updateAlertStatus(store, { lastAlertDay: today, lastAlertTs: ts, lastError: null });
   } catch (e) {
-    alerts.lastError = String(e.message || e).slice(0, 200);
+    await updateAlertStatus(store, { lastError: String(e.message || e).slice(0, 200) });
   }
-  await store.setJSON("alerts", alerts);
 }
 
 export default async (req) => {
@@ -78,7 +75,7 @@ export default async (req) => {
   const threshold = Number.isFinite(Number(body.threshold)) ? Number(body.threshold) : null;
   const ts = Date.now();
 
-  const store = getStore("heizung");
+  const store = openStore();
   const history = (await store.get("history", { type: "json" })) || [];
   const values = {};
   for (const s of sensors) values[s.id] = s.temperature;

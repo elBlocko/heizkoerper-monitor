@@ -3,16 +3,15 @@
 // PUT  /api/alerts  { enabled, recipients } -> Einstellungen speichern
 // POST /api/alerts  { action: "test" }   -> Test-Mail an alle Empfänger
 // Alle Aufrufe brauchen den Header "x-view-key: <VIEW_KEY>".
-import { getStore } from "@netlify/blobs";
-import { json, safeEqual, loadAlerts, cleanRecipients, mailConfigured, sendMail, fmtTime } from "../lib/common.mjs";
+import { json, safeEqual, openStore, loadAlerts, loadAlertStatus, updateAlertStatus, cleanRecipients, mailConfigured, sendMail, fmtTime } from "../lib/common.mjs";
 
 const TEST_COOLDOWN_MS = 60 * 1000;
 
-const publicView = (a) => ({
+const publicView = (a, s) => ({
   enabled: a.enabled,
   recipients: a.recipients,
-  lastAlertTs: a.lastAlertTs,
-  lastError: a.lastError,
+  lastAlertTs: s.lastAlertTs,
+  lastError: s.lastError,
   mailConfigured: mailConfigured(),
 });
 
@@ -21,10 +20,10 @@ export default async (req) => {
   if (!viewKey) return json({ error: "not_configured" }, 503);
   if (!safeEqual(req.headers.get("x-view-key") || "", viewKey)) return json({ error: "unauthorized" }, 401);
 
-  const store = getStore("heizung");
+  const store = openStore();
   const alerts = await loadAlerts(store);
 
-  if (req.method === "GET") return json(publicView(alerts));
+  if (req.method === "GET") return json(publicView(alerts, await loadAlertStatus(store)));
 
   let body;
   try { body = await req.json(); } catch { return json({ error: "Ungültiges JSON" }, 400); }
@@ -37,25 +36,27 @@ export default async (req) => {
     }
     if (typeof body.enabled === "boolean") alerts.enabled = body.enabled;
     await store.setJSON("alerts", alerts);
-    return json(publicView(alerts));
+    // Alte Fehlermeldung (z. B. "Keine Empfänger") nach einer Änderung zurücksetzen
+    const status = await updateAlertStatus(store, { lastError: null });
+    return json(publicView(alerts, status));
   }
 
   if (req.method === "POST" && body.action === "test") {
-    if (alerts.lastTestTs && Date.now() - alerts.lastTestTs < TEST_COOLDOWN_MS) {
+    if (!alerts.recipients.length) return json({ error: "Keine Empfänger eingetragen" }, 400);
+    const status = await loadAlertStatus(store);
+    if (status.lastTestTs && Date.now() - status.lastTestTs < TEST_COOLDOWN_MS) {
       return json({ error: "Bitte eine Minute bis zur nächsten Test-Mail warten" }, 429);
     }
-    alerts.lastTestTs = Date.now();
     try {
       await sendMail(alerts.recipients, "Test: Heizkörper-Monitor",
         `Dies ist eine Test-Mail vom Heizkörper-Monitor (${fmtTime(Date.now())}).\n\n` +
         `Wenn der Vorlauf unter den Grenzwert fällt, kommt höchstens eine Warnung pro Tag an diese Adresse.`);
-      alerts.lastError = null;
-      await store.setJSON("alerts", alerts);
+      await updateAlertStatus(store, { lastTestTs: Date.now(), lastError: null });
       return json({ ok: true, sent: alerts.recipients.length });
     } catch (e) {
-      alerts.lastError = String(e.message || e).slice(0, 200);
-      await store.setJSON("alerts", alerts);
-      return json({ error: alerts.lastError }, 502);
+      const msg = String(e.message || e).slice(0, 200);
+      await updateAlertStatus(store, { lastTestTs: Date.now(), lastError: msg });
+      return json({ error: msg }, 502);
     }
   }
 

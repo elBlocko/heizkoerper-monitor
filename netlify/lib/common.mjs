@@ -27,6 +27,25 @@ export const dayKey = (ts) => dayFmt.format(new Date(ts));
 export const fmtTime = (ts) =>
   new Date(ts).toLocaleString("de-DE", { timeZone: "Europe/Berlin", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
+// ---------- Außentemperatur (Open-Meteo, kostenlos, ohne Schlüssel) ----------
+// Ort steht nur in der Netlify-Variable WEATHER_LOCATION ("Breite,Länge,Name"),
+// damit er nicht im öffentlichen Repository auftaucht.
+export const OUTDOOR_ID = "_aussen";
+
+export async function fetchOutdoor() {
+  const cfg = Netlify.env.get("WEATHER_LOCATION");
+  if (!cfg) return null;
+  const [lat, lon, ...rest] = cfg.split(",").map((x) => x.trim());
+  const name = rest.join(", ") || "Außen";
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return null;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${Number(lat)}&longitude=${Number(lon)}&current=temperature_2m&timezone=Europe%2FBerlin`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!res.ok) return null;
+  const t = Number((await res.json())?.current?.temperature_2m);
+  if (!Number.isFinite(t)) return null;
+  return { name: name.slice(0, 40), temperature: Math.round(t * 10) / 10 };
+}
+
 // ---------- Warnungen (Netlify Blobs) ----------
 // "alerts"       = Einstellungen (nur über das Dashboard geändert)
 // "alert-status" = Versandstatus (von Ingest und Test-Mail geschrieben)

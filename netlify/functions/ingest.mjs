@@ -3,7 +3,7 @@
 // Erwartet: POST /api/ingest, Header "Authorization: Bearer <INGEST_TOKEN>"
 // Body: { "threshold": 30, "sensors": [ { "id": "vorlauf", "name": "Vorlauf Wohnung", "temperature": 52.3, "battery": 95 } ] }
 import { alertMail } from "../lib/mail-templates.mjs";
-import { json, safeEqual, openStore, dayKey, loadAlerts, loadAlertStatus, updateAlertStatus, sendMail, mailConfigured } from "../lib/common.mjs";
+import { json, safeEqual, openStore, fetchOutdoor, OUTDOOR_ID, dayKey, loadAlerts, loadAlertStatus, updateAlertStatus, sendMail, mailConfigured } from "../lib/common.mjs";
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 Tage Verlauf
 const MAX_SENSORS = 20;
@@ -75,6 +75,11 @@ export default async (req) => {
   const history = (await store.get("history", { type: "json" })) || [];
   const values = {};
   for (const s of sensors) values[s.id] = s.temperature;
+
+  // Außentemperatur dazuholen – ein Fehler beim Wetterdienst darf nichts blockieren
+  let outdoor = null;
+  try { outdoor = await fetchOutdoor(); } catch {}
+  if (outdoor) values[OUTDOOR_ID] = outdoor.temperature;
   history.push({ ts, values });
   const pruned = history.filter((h) => ts - h.ts <= MAX_AGE_MS);
 
@@ -82,20 +87,28 @@ export default async (req) => {
   const daily = (await store.get("daily", { type: "json" })) || {};
   const day = dayKey(ts);
   const entry = daily[day] || (daily[day] = {});
-  for (const s of sensors) {
-    const t = s.temperature;
-    const e = entry[s.id] || { min: t, max: t, sum: 0, n: 0 };
+  const dailyItems = sensors.map((s) => ({ id: s.id, t: s.temperature }));
+  if (outdoor) dailyItems.push({ id: OUTDOOR_ID, t: outdoor.temperature });
+  for (const { id, t } of dailyItems) {
+    const e = entry[id] || { min: t, max: t, sum: 0, n: 0 };
     e.min = Math.min(e.min, t);
     e.max = Math.max(e.max, t);
     e.sum = Math.round((e.sum + t) * 10) / 10;
     e.n += 1;
-    entry[s.id] = e;
+    entry[id] = e;
   }
   for (const k of Object.keys(daily).sort().slice(0, -MAX_DAYS)) delete daily[k];
 
   await store.setJSON("history", pruned);
   await store.setJSON("daily", daily);
-  await store.setJSON("latest", { ts, threshold, sensors });
+  // Fällt der Wetterdienst kurz aus, den letzten Außenwert (max. 1 Std. alt) weiter anzeigen
+  let shownOutdoor = outdoor ? { ...outdoor, ts } : null;
+  if (!shownOutdoor) {
+    const prevLatest = await store.get("latest", { type: "json" });
+    const po = prevLatest?.outdoor;
+    if (po?.ts && ts - po.ts <= 60 * 60 * 1000) shownOutdoor = po;
+  }
+  await store.setJSON("latest", { ts, threshold, sensors, outdoor: shownOutdoor });
 
   // Ein Fehler beim Mailversand darf das Speichern der Messwerte nicht verhindern
   try { await checkAlert(store, sensors, threshold, pruned, ts); } catch {}

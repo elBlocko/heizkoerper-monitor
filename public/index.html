@@ -42,6 +42,8 @@
   .hero .status { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
   .pill { font-size: 12px; font-weight: 500; padding: 2px 10px; border-radius: 99px; background: var(--warm-soft); color: var(--warm); }
   .hero.cold .pill { background: var(--cold-soft); color: var(--cold); }
+  .outdoor { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .outdoor strong { font: 500 15px "IBM Plex Mono", ui-monospace, monospace; color: var(--cold); }
   .today { display: grid; grid-template-columns: repeat(3, auto); gap: 4px 20px; text-align: right; }
   .today .k { font-size: 12px; color: var(--muted); }
   .today .v { font: 500 18px/1.2 "IBM Plex Mono", ui-monospace, monospace; }
@@ -114,6 +116,7 @@
         <div class="label" id="sensorName">Vorlauf Wohnung</div>
         <div class="temp" id="temp">–</div>
         <div class="status"><span class="pill" id="pill">warm</span><span id="battery"></span></div>
+        <div class="outdoor" id="outdoor" hidden></div>
       </div>
       <div class="today">
         <div class="head">Heute</div>
@@ -198,6 +201,7 @@
     return `rgba(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}, ${a})`;
   }
   const sensor = () => data.latest.sensors[0];
+  const OUT = "_aussen";
 
   // ---------- Kopfbereich ----------
   function renderHero() {
@@ -209,6 +213,12 @@
     const unit = document.createElement("small"); unit.textContent = " °C"; $("temp").appendChild(unit);
     $("pill").textContent = cold ? "kühlt aus" : "warm";
     $("battery").textContent = s.battery != null ? `Batterie ${s.battery} %` : "";
+    const o = data.latest.outdoor;
+    $("outdoor").hidden = !o;
+    if (o) {
+      $("outdoor").textContent = `Außen (${o.name}) `;
+      const b = document.createElement("strong"); b.textContent = fmtT(o.temperature); $("outdoor").appendChild(b);
+    }
     $("updated").textContent = "Stand: " + new Date(data.latest.ts).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     $("thresholdInfo").textContent = thr != null ? `Warnung unter ${thr} °C` : "";
 
@@ -227,7 +237,8 @@
 
   function renderChart() {
     const s = sensor(), thr = data.latest.threshold;
-    const warm = css("--warm"), muted = css("--muted"), grid = css("--line");
+    const warm = css("--warm"), cold = css("--cold"), muted = css("--muted"), grid = css("--line");
+    const outName = data.latest.outdoor ? `Außen (${data.latest.outdoor.name})` : "Außen";
     let labels = [], datasets = [], summary = null;
     $("chartTitle").textContent = TITLES[range];
 
@@ -239,6 +250,8 @@
         : new Date(h.ts).toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" }));
       datasets.push({ label: s.name, data: rows.map((h) => h.values[s.id]), borderColor: warm, backgroundColor: warm,
         borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: true });
+      if (rows.some((h) => h.values[OUT] != null)) datasets.push({ label: outName, data: rows.map((h) => h.values[OUT] ?? null),
+        borderColor: cold, backgroundColor: cold, borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: true });
       const vals = rows.map((h) => h.values[s.id]);
       if (vals.length) summary = { avg: vals.reduce((a, b) => a + b, 0) / vals.length, min: Math.min(...vals), max: Math.max(...vals),
         below: thr != null ? Math.round(vals.filter((v) => v < thr).length / vals.length * 100) : null, belowUnit: "%" };
@@ -259,6 +272,8 @@
         { label: "Tagesmittel", data: v.map((x) => x.avg), borderColor: warm, backgroundColor: warm, borderWidth: 2,
           pointRadius: range === "month" ? 2 : 0, tension: 0.3 },
       );
+      if (rows.some((d) => d.values[OUT])) datasets.push({ label: outName + " – Mittel", data: rows.map((d) => d.values[OUT]?.avg ?? null),
+        borderColor: cold, backgroundColor: cold, borderWidth: 1.5, pointRadius: 0, tension: 0.3, spanGaps: true });
       if (v.length) summary = { avg: v.reduce((a, x) => a + x.avg, 0) / v.length, min: Math.min(...v.map((x) => x.min)), max: Math.max(...v.map((x) => x.max)),
         below: thr != null ? v.filter((x) => x.min < thr).length : null, belowUnit: " Tage" };
     }

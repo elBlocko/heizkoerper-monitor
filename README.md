@@ -12,3 +12,5 @@ Die Schlüssel `INGEST_TOKEN`, `VIEW_KEY`, `GMAIL_USER` und `GMAIL_APP_PASSWORD`
 
 
 **Warn-Mails:** Liegen der aktuelle und der vorherige Messwert unter dem Grenzwert, geht eine Mail (BCC) an alle im Dashboard eingetragenen Adressen – höchstens einmal pro Kalendertag. Warnungen lassen sich im Dashboard abschalten (z. B. im Sommer).
+
+**Außentemperatur:** Kommt bei jeder Messung von Open-Meteo (kostenlos, ohne Schlüssel). Der Ort steht nur in der Netlify-Variable `WEATHER_LOCATION` im Format `Breite,Länge,Name` – bewusst nicht im öffentlichen Repository.

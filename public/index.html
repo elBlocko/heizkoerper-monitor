@@ -99,7 +99,6 @@
     <input id="keyInput" type="password" autocomplete="current-password" placeholder="Zugangsschlüssel">
     <div class="btns">
       <button class="btn" id="keySubmit">Anmelden</button>
-      <button class="btn ghost" id="demoBtn">Demo ansehen</button>
     </div>
     <div class="err" id="loginErr"></div>
   </section>
@@ -109,7 +108,6 @@
       <h1>Vorlauf-Monitor</h1>
       <span class="meta" id="updated"></span>
     </header>
-    <div class="banner" id="demoBanner" hidden><strong>Demo-Modus:</strong> simulierte Werte. Echte Daten erscheinen, sobald Home Assistant sendet.</div>
 
     <div class="hero" id="hero">
       <div>
@@ -178,36 +176,6 @@
   const dayFmt = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" });
   const dayKey = (ts) => dayFmt.format(new Date(ts));
   const fmtT = (v) => v == null ? "–" : v.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " °C";
-
-  // ---------- Demo-Daten: ein Vorlauf-Sensor ----------
-  function vorlaufAt(ts) {
-    const d = new Date(ts);
-    const h = d.getHours() + d.getMinutes() / 60;
-    // Jahreszeit: Heizsaison Okt–Apr, im Hochsommer Heizung aus
-    const doy = (ts - new Date(d.getFullYear(), 0, 1)) / DAY;
-    const season = Math.min(1, Math.max(0, (Math.cos(((doy - 15) / 365) * 2 * Math.PI) + 0.35) / 1.35)); // 1 im Januar, 0 im Sommer
-    const night = (h >= 22 || h < 5) ? 0.75 : 1; // Nachtabsenkung
-    const base = 22 + (38 * season + 8) * night * (season > 0.08 ? 1 : 0);
-    return base + Math.sin(ts / 2.7e6) * 1.8 + Math.sin(ts / 9.1e5) * 0.7;
-  }
-  function makeDemo() {
-    const id = "vorlauf", now = Date.now(), history = [], dailyMap = {};
-    for (let t = now - 365 * DAY; t <= now; t += 30 * 60e3) {
-      const v = vorlaufAt(t), k = dayKey(t);
-      const e = dailyMap[k] || (dailyMap[k] = { min: v, max: v, sum: 0, n: 0 });
-      e.min = Math.min(e.min, v); e.max = Math.max(e.max, v); e.sum += v; e.n++;
-    }
-    for (let t = now - 7 * DAY; t <= now; t += 10 * 60e3) {
-      history.push({ ts: t, values: { [id]: Math.round(vorlaufAt(t) * 10) / 10 } });
-    }
-    const r = (x) => Math.round(x * 10) / 10;
-    const daily = Object.keys(dailyMap).sort().map((date) => {
-      const e = dailyMap[date];
-      return { date, values: { [id]: { min: r(e.min), max: r(e.max), avg: r(e.sum / e.n) } } };
-    });
-    const last = history[history.length - 1];
-    return { latest: { ts: last.ts, threshold: 30, sensors: [{ id, name: "Vorlauf Wohnung", temperature: last.values[id], battery: 87 }] }, history, daily };
-  }
 
   // ---------- Daten laden ----------
   async function load(key) {
@@ -398,13 +366,12 @@
   });
 
   // ---------- Ablauf ----------
-  function showApp(d, isDemo) {
+  function showApp(d) {
     data = d;
     $("login").hidden = true; $("app").hidden = false;
-    $("demoBanner").hidden = !isDemo;
     $("alertsPanel").hidden = true;
     render();
-    if (!isDemo) loadAlerts();
+    loadAlerts();
   }
   function showLogin(msg) {
     clearInterval(refreshTimer);
@@ -416,20 +383,19 @@
       const d = await load(key);
       store.set(key);
       currentKey = key;
-      showApp(d, false);
+      showApp(d);
       clearInterval(refreshTimer);
       refreshTimer = setInterval(async () => { try { data = await load(key); render(); } catch {} }, 60000);
     } catch (e) {
       if (e.message === "unauthorized") { store.clear(); showLogin("Schlüssel stimmt nicht."); }
-      else if (e.message === "no_data") showLogin("Angemeldet, aber noch keine Messwerte vorhanden. Schau dir solange die Demo an.");
-      else if (e.message === "not_configured") showLogin("Die Seite ist noch nicht eingerichtet. Schau dir solange die Demo an.");
+      else if (e.message === "no_data") showLogin("Angemeldet, aber noch keine Messwerte vorhanden. Sobald Home Assistant sendet, erscheinen sie hier.");
+      else if (e.message === "not_configured") showLogin("Die Seite ist noch nicht eingerichtet.");
       else showLogin("Verbindung fehlgeschlagen.");
     }
   }
 
   $("keySubmit").addEventListener("click", () => { const k = $("keyInput").value.trim(); if (k) start(k); });
   $("keyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("keySubmit").click(); });
-  $("demoBtn").addEventListener("click", () => showApp(makeDemo(), true));
   $("logout").addEventListener("click", () => { store.clear(); showLogin(); });
   document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
     range = b.dataset.range;
@@ -438,9 +404,8 @@
   }));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => data && renderChart());
 
-  const params = new URLSearchParams(location.search);
-  if (params.has("demo")) showApp(makeDemo(), true);
-  else { const saved = store.get(); saved ? start(saved) : showLogin(); }
+  const saved = store.get();
+  saved ? start(saved) : showLogin();
 })();
 </script>
 </body>

@@ -2,7 +2,7 @@
 
 Dashboard für die Vorlauftemperatur zur Wohnung (ein Sonoff SNZB-02LD über Home Assistant), gehostet auf Netlify. Ansichten: 24 h, 7 Tage, Monat, Jahr.
 
-- `public/index.html` – Dashboard (mit Demo-Modus: `?demo`)
+- `public/index.html` – Dashboard
 - `netlify/functions/ingest.mjs` – `POST /api/ingest`, nimmt Werte von Home Assistant an (Header `Authorization: Bearer <INGEST_TOKEN>`)
 - `netlify/functions/readings.mjs` – `GET /api/readings`, liefert Werte ans Dashboard (Header `x-view-key: <VIEW_KEY>`)
 - `netlify/functions/alerts.mjs` – `/api/alerts`, verwaltet die Empfänger der Warn-Mails (Header `x-view-key: <VIEW_KEY>`)

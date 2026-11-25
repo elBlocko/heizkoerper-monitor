@@ -113,7 +113,7 @@
 
     <div class="hero" id="hero">
       <div>
-        <div class="label" id="sensorName">Vorlauf Wohnung</div>
+        <div class="label" id="sensorName">Vorlauf Heizungsraum</div>
         <div class="temp" id="temp">–</div>
         <div class="status"><span class="pill" id="pill">warm</span><span id="battery"></span></div>
         <div class="outdoor" id="outdoor" hidden></div>
@@ -208,7 +208,7 @@
     const s = sensor(), thr = data.latest.threshold;
     const cold = thr != null && s.temperature < thr;
     $("hero").classList.toggle("cold", cold);
-    $("sensorName").textContent = s.name || "Vorlauf Wohnung";
+    $("sensorName").textContent = s.name || "Vorlauf Heizungsraum";
     $("temp").textContent = s.temperature.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
     const unit = document.createElement("small"); unit.textContent = " °C"; $("temp").appendChild(unit);
     $("pill").textContent = cold ? "kühlt aus" : "warm";
@@ -356,7 +356,10 @@
     else alertsMsg("");
   }
   async function loadAlerts() {
-    try { alerts = await alertsApi("GET"); $("alertsPanel").hidden = false; renderAlerts(); }
+    // Panel bleibt ausgeblendet; Warn-Mails laufen im Hintergrund weiter.
+    // Zum Wieder-Einblenden SHOW_ALERTS_PANEL auf true setzen.
+    const SHOW_ALERTS_PANEL = false;
+    try { alerts = await alertsApi("GET"); $("alertsPanel").hidden = !SHOW_ALERTS_PANEL; renderAlerts(); }
     catch { $("alertsPanel").hidden = true; }
   }
   async function saveAlerts(patch, okText) {
